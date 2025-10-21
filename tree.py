@@ -1,6 +1,10 @@
 import pandas as pd
 
-#! TODO: error in profit from reducing hedge: use initial price - current price, not previous price - current price. 
+#! TODO:
+# check if flat branch is not in fact exactly the same mecanism than up branch
+# add a column unrealised pnl from remaining hedge position  
+# cumulative pnl for each category, avg cumul pnl per category, number of path per category
+
 
 def build_btc_trinomial_tree_rule_based(
     start_price=120_000,
@@ -17,13 +21,13 @@ def build_btc_trinomial_tree_rule_based(
       - Path-level tracking of min/max BTC prices
 
     Rules:
-      * Sell interest only if BTC > initial (month 0) price
+      * Sell interest only if BTC >= initial (month 0) price
       * Reduce hedge if BTC < initial price
       * Monthly funding fee on current hedge notional (before adjustment)
     """
 
-    initial_hedge = months * expected_btc_interest  # initial short hedge position (BTC)
-    reference_price = start_price  # the anchor price used for comparison
+    initial_hedge = months * expected_btc_interest
+    reference_price = start_price
 
     nodes = [{
         "month": 0,
@@ -54,88 +58,56 @@ def build_btc_trinomial_tree_rule_based(
             prev_max = n["path_max_price"]
             prev_min = n["path_min_price"]
 
-            # Monthly funding before hedge change
+            # Monthly funding (before adjustment)
             monthly_funding_fee = prev_hedge * prev_price * (yearly_funding_rate / 12)
 
-            # --- UP branch ---
-            price_up = prev_price + step
-            sell_interest = price_up >= reference_price
-            profit_sell = expected_btc_interest * price_up if sell_interest else 0.0
-            profit_hedge = 0.0
-            new_nodes.append({
-                "month": m,
-                "path": n["path"] + "U",
-                "btc_price": price_up,
-                "path_max_price": max(prev_max, price_up),
-                "path_min_price": min(prev_min, price_up),
-                "btc_price_below_initial": price_up < reference_price,
-                "sell_interest_at_spot": sell_interest,
-                "profit_from_selling_interest": profit_sell,
-                "reduce_hedge": not sell_interest,
-                "profit_from_reducing_hedge": profit_hedge,
-                "hedge_short_position": prev_hedge,
-                "remaining_interest": remaining,
-                "monthly_funding_fee": monthly_funding_fee,
-                "cumulative_pnl": cum_pnl + profit_sell + monthly_funding_fee,
-                "action": "price up → sell interest if above initial, keep hedge"
-            })
+            # --- Common logic builder ---
+            def make_node(price, move_label):
+                sell_interest = price >= reference_price
+                reduce_hedge = not sell_interest
+                profit_sell = expected_btc_interest * price if sell_interest else 0.0
+                profit_hedge = (
+                    expected_btc_interest * (reference_price - price)
+                    if reduce_hedge else 0.0
+                )
+                new_hedge = (
+                    max(prev_hedge - expected_btc_interest, 0)
+                    if reduce_hedge else prev_hedge
+                )
+                return {
+                    "month": m,
+                    "path": n["path"] + move_label,
+                    "btc_price": price,
+                    "path_max_price": max(prev_max, price),
+                    "path_min_price": min(prev_min, price),
+                    "btc_price_below_initial": price < reference_price,
+                    "sell_interest_at_spot": sell_interest,
+                    "profit_from_selling_interest": profit_sell,
+                    "reduce_hedge": reduce_hedge,
+                    "profit_from_reducing_hedge": profit_hedge,
+                    "hedge_short_position": new_hedge,
+                    "remaining_interest": remaining,
+                    "monthly_funding_fee": monthly_funding_fee,
+                    "cumulative_pnl": cum_pnl + profit_sell + profit_hedge + monthly_funding_fee,
+                    "action": (
+                        f"price {move_label} → "
+                        f"{'sell interest' if sell_interest else 'reduce hedge'}"
+                    )
+                }
 
-            # --- FLAT branch ---
-            price_flat = prev_price
-            sell_interest = price_flat >= reference_price
-            profit_sell = expected_btc_interest * price_flat if sell_interest else 0.0
-            profit_hedge = 0.0
-            new_nodes.append({
-                "month": m,
-                "path": n["path"] + "F",
-                "btc_price": price_flat,
-                "path_max_price": max(prev_max, price_flat),
-                "path_min_price": min(prev_min, price_flat),
-                "btc_price_below_initial": price_flat < reference_price,
-                "sell_interest_at_spot": sell_interest,
-                "profit_from_selling_interest": profit_sell,
-                "reduce_hedge": not sell_interest,
-                "profit_from_reducing_hedge": profit_hedge,
-                "hedge_short_position": prev_hedge,
-                "remaining_interest": remaining,
-                "monthly_funding_fee": monthly_funding_fee,
-                "cumulative_pnl": cum_pnl + profit_sell + monthly_funding_fee,
-                "action": "price flat → sell interest if above initial, keep hedge"
-            })
-
-            # --- DOWN branch ---
-            price_down = prev_price - step
-            sell_interest = False
-            profit_sell = 0.0
-            profit_hedge = expected_btc_interest * reference_price
-            new_nodes.append({
-                "month": m,
-                "path": n["path"] + "D",
-                "btc_price": price_down,
-                "path_max_price": max(prev_max, price_down),
-                "path_min_price": min(prev_min, price_down),
-                "btc_price_below_initial": price_down < reference_price,
-                "sell_interest_at_spot": sell_interest,
-                "profit_from_selling_interest": profit_sell,
-                "reduce_hedge": True,
-                "profit_from_reducing_hedge": profit_hedge,
-                "hedge_short_position": max(prev_hedge - expected_btc_interest, 0),
-                "remaining_interest": remaining,
-                "monthly_funding_fee": monthly_funding_fee,
-                "cumulative_pnl": cum_pnl + profit_hedge + monthly_funding_fee,
-                "action": "price down → reduce hedge (no sale)"
-            })
+            # --- Branches ---
+            new_nodes.append(make_node(prev_price + step, "U"))
+            new_nodes.append(make_node(prev_price, "F"))
+            new_nodes.append(make_node(prev_price - step, "D"))
 
         nodes.extend(new_nodes)
 
     return pd.DataFrame(nodes)
 
 
-# --- Path classifier function ---
 def classify_path(row, start_price, step, months, alpha=0.25, n_consecutive=3):
     """
-    Classify each final path into categories based on relative price levels
-    and sequence patterns (U/F/D path string).
+    Classify each final path into categories based on price bounds and sequence patterns.
     """
     path = row["path"]
     final_price = row["btc_price"]
@@ -146,7 +118,13 @@ def classify_path(row, start_price, step, months, alpha=0.25, n_consecutive=3):
     lower = start_price - alpha * max_move
     upper = start_price + alpha * max_move
 
-    # Range-Bound (Neutral)
+    # Helper: compress repeated moves (e.g. "UUUDDD" → "UD")
+    compressed = []
+    for ch in path:
+        if not compressed or compressed[-1] != ch:
+            compressed.append(ch)
+
+    # Range-Bound
     if (lower <= final_price <= upper) and (path_min >= lower) and (path_max <= upper):
         return "range_bound"
 
@@ -156,6 +134,10 @@ def classify_path(row, start_price, step, months, alpha=0.25, n_consecutive=3):
     if path == "D" * len(path):
         return "extreme_downtrend"
 
+    # Sharp reversal (V-shape): one switch, no 'F'
+    if "F" not in path and len(compressed) == 2 and set(compressed).issubset({"U", "D"}):
+        return "sharp_reversal"
+
     # Uptrend (Bull)
     if (final_price > upper) and ("U" * n_consecutive in path):
         return "bull"
@@ -164,19 +146,7 @@ def classify_path(row, start_price, step, months, alpha=0.25, n_consecutive=3):
     if (final_price < lower) and ("D" * n_consecutive in path):
         return "bear"
 
-    # Sharp Reversal (V-shape)
-    # Definition: no 'F', exactly one direction switch between D/U or U/D
-    if "F" not in path:
-        # Compress consecutive identical letters (e.g. "DDDUU" → "DU")
-        compressed = []
-        for ch in path:
-            if not compressed or compressed[-1] != ch:
-                compressed.append(ch)
-        if len(compressed) == 2 and set(compressed).issubset({"U", "D"}):
-            return "sharp_reversal"
-
     return "other"
-
 
 def build_tree_and_classify(start_price=120_000,
                             step=5_000,
@@ -189,7 +159,7 @@ def build_tree_and_classify(start_price=120_000,
         months=months,
         expected_btc_interest=7.5
     )
-    
+
     # Select final nodes (one per complete path)
     final_nodes = df_tree.groupby("path").tail(1).copy()
 
@@ -207,7 +177,24 @@ def build_tree_and_classify(start_price=120_000,
         how="left"
     )
 
-    return df_tree
+    df_last_month = df_tree[df_tree['month'] == df_tree['month'].max()]
+
+    df_category_stat = (
+        df_last_month.groupby("category")
+        .agg(
+            count=("path", "count"),
+            pnl_min=("cumulative_pnl", "min"),
+            pnl_max=("cumulative_pnl", "max"),
+            pnl_mean=("cumulative_pnl", "mean"),
+            # pnl_median=("cumulative_pnl", "median"),
+            avg_funding_income=("monthly_funding_fee", "mean"),
+            total_funding_income=("monthly_funding_fee", "sum")
+        )
+        .reset_index()
+    )
+
+
+    return df_tree, df_category_stat
 
 # --- Example usage ---
 if __name__ == "__main__":

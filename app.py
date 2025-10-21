@@ -2,12 +2,48 @@ from dash import Dash, dcc, html, Input, Output, State, dash_table
 import plotly.graph_objects as go
 import pandas as pd
 import dash
+import dash_bootstrap_components as dbc
 
 from tree import build_tree_and_classify
 from figures import make_tree_fig_combined
 
+## STYLES for dash datatable
+STYLE_TABLE={
+    "overflowX": "auto",
+    "border": "none",
+    "minWidth": "100%"
+}
+STYLE_HEADER={
+    "backgroundColor": "#2c3e50",
+    "color": "white",
+    "fontWeight": "600",
+    "fontSize": "16px",
+    "textAlign": "center",
+    "border": "none",
+}
+STYLE_CELL={
+    "textAlign": "center",
+    "padding": "6px 8px",
+    "fontSize": "16px",
+    "fontFamily": "'Lato', 'Roboto', 'Helvetica Neue', sans-serif",
+    "whiteSpace": "normal",
+    "height": "auto",
+    "border": "none",
+}
+STYLE_DATA={
+    "backgroundColor": "white",
+    "color": "#212529",
+    "borderBottom": "1px solid #dee2e6"
+}
+STYLE_DATA_CONDITIONAL=[
+    {"if": {"row_index": "odd"}, "backgroundColor": "#f8f9fa"},
+    {"if": {"column_id": "cumulative_pnl"}, "color": "#198754", "fontWeight": "bold"},
+]
+   
+##
+
 # --- Data ---
-df_tree = build_tree_and_classify(
+df_tree, df_category_stat = build_tree_and_classify(
     start_price=120_000,
     step=5_000,
     months=12,
@@ -17,8 +53,21 @@ df_tree = build_tree_and_classify(
 INITIAL_PATH = ""  # root node selected by default
 
 # --- App setup ---
-app = Dash(__name__)
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
 app.title = "BTC Hedge Tree Explorer"
+
+category_table = dash_table.DataTable(
+    columns=[{"name": col, "id": col} for col in df_category_stat.columns],
+    data=df_category_stat.to_dict("records"),
+    style_as_list_view=True,
+    style_table=STYLE_TABLE,
+    style_header=STYLE_HEADER,
+    style_cell=STYLE_CELL,
+    style_data=STYLE_DATA,
+    style_data_conditional=STYLE_DATA_CONDITIONAL,
+    page_size=12,
+)
 
 app.layout = html.Div([
     dcc.Graph(
@@ -44,8 +93,13 @@ app.layout = html.Div([
     ], style={"display": "flex", "alignItems": "center", "justifyContent": "space-between"}),
 
     html.Div(id="path-table-container"),
+    html.Br(),
+    html.Div(category_table),
+    html.Br(),
     html.Div(id="path-plot-container", style={"marginTop": "20px"})
-], style={"marginBottom": "100px"})
+], style={"marginBottom": "100px",
+          "marginLeft": '20px', 
+          'marginRight': '20px'})
 
 
 # --- Callback ---
@@ -137,9 +191,12 @@ def update_tree_and_path(clickData, reset_clicks, current_path):
     table = dash_table.DataTable(
         columns=[{"name": col, "id": col} for col in display_df.columns],
         data=display_df.to_dict("records"),
-        style_table={"overflowX": "auto"},
-        style_cell={"textAlign": "center"},
-        style_header={"fontWeight": "bold"},
+        style_as_list_view=True,
+        style_table=STYLE_TABLE,
+        style_header=STYLE_HEADER,
+        style_cell=STYLE_CELL,
+        style_data=STYLE_DATA,
+        style_data_conditional=STYLE_DATA_CONDITIONAL,
         page_size=12,
     )
 
@@ -183,10 +240,10 @@ def update_tree_and_path(clickData, reset_clicks, current_path):
     final_pnl = final_row["cumulative_pnl"]
     total_funding = df_path["monthly_funding_fee"].sum()
     category = final_row.get("category", "N/A")
-    
+
         # --- Multi-line summary ---
     header = html.Div([
-        html.B("📊 Current Path: "), f"{new_path or '(root)'}", html.Br(),
+        html.B("Current Path: "), f"{new_path or '(root)'}", html.Br(),
         html.B("Month: "), f"{len(new_path)}", html.Br(),
         html.B("Category: "), f"{category}", html.Br(),
         html.B("Final PnL: "), f"${final_pnl:,.0f}", html.Br(),
