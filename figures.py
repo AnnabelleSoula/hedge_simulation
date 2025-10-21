@@ -28,7 +28,14 @@ def make_static_lattice(start_price=120_000, step=5_000, months=12):
     return pd.DataFrame(nodes), pd.DataFrame(edges)
 
 
-def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5_000, months=12):
+def make_tree_fig_combined(
+    df_tree,
+    current_path="",
+    start_price=120_000,
+    step=5_000,
+    months=12,
+    alpha=0.25
+):
     """
     Combine static lattice (background) with path-dependent overlay.
     Highlight:
@@ -37,8 +44,14 @@ def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5
       - lightblue: path history
       - lightgray: inactive
     Highlight the edges of the active path (black).
+    Also show horizontal lines for in-range upper/lower bounds.
     """
     df_nodes, df_edges = make_static_lattice(start_price, step, months)
+
+    # --- Range boundaries ---
+    max_move = step * (months - 1)
+    lower_bound = start_price - alpha * max_move
+    upper_bound = start_price + alpha * max_move
 
     # --- Build list of nodes on the active path ---
     if current_path == "":
@@ -112,7 +125,6 @@ def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5
     # --- Dynamic overlay coloring ---
     overlay_data = []
 
-    # root + first 3 if no path
     if current_path == "":
         overlay_data = [
             {"month": 0, "btc_price": start_price, "path": "", "color": "blue"},
@@ -122,6 +134,7 @@ def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5
         ]
         df_vis = pd.DataFrame(overlay_data)
     else:
+        prefixes = [current_path[:i] for i in range(len(current_path) + 1)]
         df_vis = df_tree[df_tree["path"].isin(prefixes + [current_path + s for s in ["U", "F", "D"]])].copy()
 
         colors = []
@@ -158,8 +171,29 @@ def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5
         name="Overlay"
     )
 
+    # --- Range bounds (horizontal lines) ---
+    bounds_traces = [
+        go.Scatter(
+            x=[-0.5, months + 0.5],
+            y=[upper_bound, upper_bound],
+            mode="lines",
+            line=dict(color="darkgrey", width=1.5, dash="dot"),
+            name="Upper Bound"
+        ),
+        go.Scatter(
+            x=[-0.5, months + 0.5],
+            y=[lower_bound, lower_bound],
+            mode="lines",
+            line=dict(color="darkgrey", width=1.5, dash="dot"),
+            name="Lower Bound"
+        ),
+    ]
+
     # --- Combine all ---
-    fig = go.Figure(data=edge_traces + [base_nodes, overlay_trace])
+    fig = go.Figure(data=edge_traces + [base_nodes, overlay_trace] + bounds_traces)
+
+    # fig.update_yaxes(side="right")
+
     fig.update_layout(
         title=f"BTC Hedge Trinomial Lattice — Path: {current_path or '(root)'}",
         xaxis_title="Month",
@@ -167,5 +201,14 @@ def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5
         plot_bgcolor="white",
         height=700,
         hovermode="closest",
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=0.98,
+            xanchor="right",
+            x=1.15,
+            bgcolor="rgba(255,255,255,0.8)"
+        )
     )
+
     return fig
