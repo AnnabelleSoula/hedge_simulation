@@ -2,7 +2,7 @@ import plotly.graph_objects as go
 import pandas as pd
 
 
-def make_static_lattice(start_price=120_000, step=5_000, months=6):
+def make_static_lattice(start_price=120_000, step=5_000, months=12):
     """
     Build the static trinomial price lattice:
     Each month: prices = start_price + k*step for k in [-m..m].
@@ -28,7 +28,7 @@ def make_static_lattice(start_price=120_000, step=5_000, months=6):
     return pd.DataFrame(nodes), pd.DataFrame(edges)
 
 
-def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5_000, months=6):
+def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5_000, months=12):
     """
     Combine static lattice (background) with path-dependent overlay.
     Highlight:
@@ -136,12 +136,22 @@ def make_tree_fig_combined(df_tree, current_path="", start_price=120_000, step=5
                 colors.append("lightgray")
         df_vis["color"] = colors
 
+    # Assign text positions dynamically
+    text_positions = []
+    for color in df_vis["color"]:
+        if color == "green":
+            text_positions.append("middle right")  # selectable next nodes
+        elif color in ["blue", "lightblue"]:
+            text_positions.append("top center")    # selected path
+        else:
+            text_positions.append("top center")    # default
+
     overlay_trace = go.Scatter(
         x=df_vis["month"],
         y=df_vis["btc_price"],
         mode="markers+text",
         text=df_vis["path"],
-        textposition="top center",
+        textposition=text_positions,  # dynamic list
         marker=dict(size=12, color=df_vis["color"], line=dict(width=1, color="black")),
         customdata=df_vis["path"],
         hovertemplate="<b>Path:</b> %{customdata}<br>Month: %{x}<br>BTC: %{y:$,.0f}<extra></extra>",

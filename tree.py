@@ -3,7 +3,7 @@ import pandas as pd
 def build_btc_trinomial_tree_rule_based(
     start_price=120_000,
     step=5_000,
-    months=6,
+    months=12,
     expected_btc_interest=7.5,
     yearly_funding_rate=0.07
 ):
