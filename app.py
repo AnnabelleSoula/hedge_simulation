@@ -176,6 +176,8 @@ def update_tree_and_path(clickData, reset_clicks, current_path):
     category_label = last_node.get("category", "N/A")
 
     # --- Build table ---
+    # --- Add bull spread overlay columns if available ---
+
     display_df = df_path[[
         "month",
         "btc_price",
@@ -185,7 +187,16 @@ def update_tree_and_path(clickData, reset_clicks, current_path):
         "profit_from_reducing_hedge",
         "monthly_funding_fee",
         "hedge_short_position",
-        "cumulative_pnl"
+        "cumulative_pnl",
+        # reinvesting funding fees in call to retain upside 
+        'call_regime',
+        'call_strike',
+        "call_price_old", 
+        "call_price_now", 
+        "call_price_new", 
+        'call_pnl',
+        "number_calls", 
+        "call_pnl_total"
     ]].copy()
 
     table = dash_table.DataTable(

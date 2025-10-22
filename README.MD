@@ -14,7 +14,51 @@ We suggest the following categories, the numerical values in the definition corr
 | **4. Sharp reversal (V-shape)**     | Path has consecutive moves in one direction followed by consecutive move in the opposite  (only one direction change, no flat)   | Classic “crash then rebound” scenario → stress test of timing and optionality |
 
 
-# Hedge Strategy 
+# Hedge Strategy
+
+### 1. Objective:
+
+To stabilize USD cash flows from BTC-denominated income while preserving partial upside and minimizing capital outlay.
+
+### 2. Core Hedge Structure
+
+The base strategy consists of:
+
+Shorting BTC perpetual futures equal to the expected yearly BTC inflows.
+
+Each month, BTC interest is received, and we reduce the hedge of the received amount. Basically, we sell all the yearly expected interest at the current price. When current price is below initial price, the hedge is profitable. When BTC trades above the initial hedge price, the strategy continues to reduce the short hedge as interest payments are received.
+However, the realized profit from this reduction is smaller than what would have been earned if the BTC interest had simply been sold outright at the higher spot price (i.e., without the hedge).
+In other words, while the hedge protects against downside, it also limits upside participation once the market rises above the initial level.
+
+We receive monthly funding fees from our short hedge position. We want to reinvest these funding fees to capture an eventual upside.
+Each month, funding fees generated from the short BTC hedge are reinvested into quarterly BTC call options.
+The objective is to retain convex upside exposure while the base hedge controls downside risk.
+
+#### Strike selection rule 
+| Market Condition                                            | Call Tenor | Strike Definition                   | Economic Rationale                                                                                                                   |
+| ----------------------------------------------------------- | ---------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **BTC price below initial price (underwater)**              | 3 months   | **Strike = initial BTC price**      | Cheap convexity toward the original hedge anchor; benefit from potential rebound.                                                    |
+| **BTC price above or equal to initial price (above water)** | 3 months   | **ATM (strike = current spot)**     | Participate in continued upside efficiently, without overpaying for deep ITM convexity.                                              |
+| **BTC price far below initial price (deep bear regime)**    | 3 months   | **Strike = BTC price 3 months ago** | Maintain realistic convex exposure when the anchor strike (120 k) is too far OTM.  Avoid wasting premium on low-probability options. |
+
+#### Position Management Approaches on options
+Two implementations are possible, depending on whether the goal is smooth convex participation or discrete tail protection:
+
+| Approach                              | Description                                                                                                                                  | Typical Behavior                                                                                 | When to Use                                                                                                                  |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Rolling 3-Month Calls Monthly** | Each month, purchase a new 3-month call (strike per the rule). After one month, mark to market and roll into a fresh 3-month maturity.       | Continuous convex exposure; smoother P&L profile; gradual participation in trending up-markets.  | Suitable when funding flows are monthly and the objective is steady convex participation (preferred for the base framework). |
+| **Hold 3-Month Calls to Expiry**  | Each month, purchase a 3-month call and hold it for the full tenor until expiry. Continue buying new ones each month (overlapping vintages). | Lumpy returns: most options expire worthless, but large positive months occur on strong rallies. | Appropriate when the goal is tail-event convexity or explicit long-vol exposure.                                             |
+
+
+
+
+
+
+
+
+------------------------------
+
+#### Hedge Strategy - OLD 
 
 1. Objective
 
