@@ -467,6 +467,7 @@ def add_quarterly_call_prices_lifecycle(df, iv=0.48, r=0.0):
     ].fillna(0.0)
 
     return df
+    
 
 # def add_bull_spread_overlay(df_tree: pd.DataFrame, step: float = 5_000, start_price = 120_000, spread_cap: float = 0.20):
 #     """
